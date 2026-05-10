@@ -10,12 +10,14 @@ public partial class Form1 : Form, IMessageFilter
     private readonly ToastForm sizeToast = new();
     private readonly System.Windows.Forms.Timer sizeToastTimer = new();
     private readonly System.Windows.Forms.Timer buttonSizeSaveTimer = new();
+    private readonly System.Windows.Forms.Timer buttonSizeApplyTimer = new();
     private bool resizing;
     private ShortcutItem? draggedItem;
     private Point dragStartPoint;
     private bool dragStarted;
     private bool suppressNextClick;
     private int dropIndicatorIndex = -1;
+    private int pendingButtonSizeDelta;
 
     private const int MinThickness = 48;
     private const int MaxThickness = 420;
@@ -51,6 +53,12 @@ public partial class Form1 : Form, IMessageFilter
     {
         Application.RemoveMessageFilter(this);
         sizeToastTimer.Stop();
+        if (buttonSizeApplyTimer.Enabled || pendingButtonSizeDelta != 0)
+        {
+            buttonSizeApplyTimer.Stop();
+            ApplyQueuedButtonSizeDelta();
+        }
+
         if (buttonSizeSaveTimer.Enabled)
         {
             buttonSizeSaveTimer.Stop();
@@ -70,7 +78,7 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         var delta = (short)((m.WParam.ToInt64() >> 16) & 0xffff);
-        AdjustButtonSize(delta > 0 ? ButtonSizeStep : -ButtonSizeStep);
+        QueueButtonSizeDelta(delta);
         return true;
     }
 
@@ -129,6 +137,9 @@ public partial class Form1 : Form, IMessageFilter
             buttonSizeSaveTimer.Stop();
             SettingsStore.Save(settings);
         };
+
+        buttonSizeApplyTimer.Interval = 35;
+        buttonSizeApplyTimer.Tick += (_, _) => ApplyQueuedButtonSizeDelta();
     }
 
     private void ConfigureContextMenu()
@@ -649,12 +660,37 @@ public partial class Form1 : Form, IMessageFilter
         SaveAndRender();
     }
 
+    private void QueueButtonSizeDelta(int wheelDelta)
+    {
+        var notches = Math.Max(1, Math.Abs(wheelDelta) / 120);
+        pendingButtonSizeDelta += Math.Sign(wheelDelta) * ButtonSizeStep * notches;
+
+        if (!buttonSizeApplyTimer.Enabled)
+        {
+            buttonSizeApplyTimer.Start();
+        }
+    }
+
+    private void ApplyQueuedButtonSizeDelta()
+    {
+        if (pendingButtonSizeDelta == 0)
+        {
+            buttonSizeApplyTimer.Stop();
+            return;
+        }
+
+        var delta = pendingButtonSizeDelta;
+        pendingButtonSizeDelta = 0;
+        AdjustButtonSize(delta);
+    }
+
     private void AdjustButtonSize(int delta)
     {
         var nextSize = Math.Clamp(settings.ButtonSize + delta, MinButtonSize, MaxButtonSize);
         if (nextSize == settings.ButtonSize)
         {
             ShowButtonSizeToast();
+            buttonSizeApplyTimer.Stop();
             return;
         }
 
@@ -699,7 +735,15 @@ public partial class Form1 : Form, IMessageFilter
     {
         sizeToast.SetText($"Botões: {settings.ButtonSize}px");
         PositionSizeToast();
-        sizeToast.Show(this);
+        if (sizeToast.Visible)
+        {
+            sizeToast.Refresh();
+        }
+        else
+        {
+            sizeToast.Show(this);
+        }
+
         sizeToastTimer.Stop();
         sizeToastTimer.Start();
     }
