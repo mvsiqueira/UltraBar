@@ -19,7 +19,7 @@ public partial class Form1 : Form, IMessageFilter
     private const int MinThickness = 48;
     private const int MaxThickness = 420;
     private const int PanelPadding = 8;
-    private const int ButtonSizeStep = 4;
+    private const int ButtonSizeStep = 2;
     private const int MinButtonSize = 32;
     private const int MaxButtonSize = 128;
     private const int WM_MOUSEWHEEL = 0x020A;
@@ -672,14 +672,12 @@ public partial class Form1 : Form, IMessageFilter
 
     private void PositionSizeToast()
     {
-        const int margin = 12;
-        sizeToast.Location = settings.DockEdge switch
-        {
-            DockEdge.Left => new Point(Math.Max(margin, Width - sizeToast.Width - margin), margin),
-            DockEdge.Right => new Point(margin, margin),
-            DockEdge.Bottom => new Point(margin, Math.Max(margin, Height - sizeToast.Height - margin)),
-            _ => new Point(margin, margin)
-        };
+        const int margin = 24;
+        var workingArea = Screen.FromControl(this).WorkingArea;
+        var screenPoint = new Point(
+            workingArea.Left + ((workingArea.Width - sizeToast.Width) / 2),
+            workingArea.Bottom - sizeToast.Height - margin);
+        sizeToast.Location = PointToClient(screenPoint);
     }
 
     private void AddShortcut(string path)
