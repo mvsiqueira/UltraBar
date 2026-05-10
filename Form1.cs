@@ -7,8 +7,9 @@ public partial class Form1 : Form, IMessageFilter
     private readonly ToolbarPanel shortcutPanel = new();
     private readonly Panel resizeGrip = new();
     private readonly ToolTip toolTip = new();
-    private readonly Label sizeToast = new();
+    private readonly ToastForm sizeToast = new();
     private readonly System.Windows.Forms.Timer sizeToastTimer = new();
+    private readonly System.Windows.Forms.Timer buttonSizeSaveTimer = new();
     private bool resizing;
     private ShortcutItem? draggedItem;
     private Point dragStartPoint;
@@ -49,6 +50,14 @@ public partial class Form1 : Form, IMessageFilter
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         Application.RemoveMessageFilter(this);
+        sizeToastTimer.Stop();
+        if (buttonSizeSaveTimer.Enabled)
+        {
+            buttonSizeSaveTimer.Stop();
+            SettingsStore.Save(settings);
+        }
+
+        sizeToast.Close();
         appBar.Unregister();
         base.OnFormClosing(e);
     }
@@ -107,22 +116,18 @@ public partial class Form1 : Form, IMessageFilter
 
     private void ConfigureSizeToast()
     {
-        sizeToast.AutoSize = false;
-        sizeToast.BackColor = Color.FromArgb(230, 22, 24, 29);
-        sizeToast.ForeColor = Color.White;
-        sizeToast.Font = new Font(Font, FontStyle.Bold);
-        sizeToast.TextAlign = ContentAlignment.MiddleCenter;
-        sizeToast.Visible = false;
-        sizeToast.Width = 132;
-        sizeToast.Height = 34;
-        Controls.Add(sizeToast);
-        sizeToast.BringToFront();
-
         sizeToastTimer.Interval = 900;
         sizeToastTimer.Tick += (_, _) =>
         {
             sizeToastTimer.Stop();
-            sizeToast.Visible = false;
+            sizeToast.Hide();
+        };
+
+        buttonSizeSaveTimer.Interval = 450;
+        buttonSizeSaveTimer.Tick += (_, _) =>
+        {
+            buttonSizeSaveTimer.Stop();
+            SettingsStore.Save(settings);
         };
     }
 
@@ -655,17 +660,46 @@ public partial class Form1 : Form, IMessageFilter
 
         settings.ButtonSize = nextSize;
         settings.Sanitize();
-        SettingsStore.Save(settings);
-        RenderShortcuts();
+        ApplyButtonSizeToExistingControls();
+        QueueButtonSizeSave();
         ShowButtonSizeToast();
+    }
+
+    private void ApplyButtonSizeToExistingControls()
+    {
+        foreach (Control control in shortcutPanel.Controls)
+        {
+            if (control is ShortcutButton button)
+            {
+                button.Width = settings.ButtonSize;
+                button.Height = settings.ButtonSize;
+                button.ImagePadding = settings.ImagePadding;
+                button.Invalidate();
+                continue;
+            }
+
+            if (control is SeparatorControl separator)
+            {
+                separator.DockEdge = settings.DockEdge;
+                separator.Invalidate();
+            }
+        }
+
+        ArrangeShortcuts();
+        shortcutPanel.Invalidate(true);
+    }
+
+    private void QueueButtonSizeSave()
+    {
+        buttonSizeSaveTimer.Stop();
+        buttonSizeSaveTimer.Start();
     }
 
     private void ShowButtonSizeToast()
     {
-        sizeToast.Text = $"Botões: {settings.ButtonSize}px";
+        sizeToast.SetText($"Botões: {settings.ButtonSize}px");
         PositionSizeToast();
-        sizeToast.Visible = true;
-        sizeToast.BringToFront();
+        sizeToast.Show(this);
         sizeToastTimer.Stop();
         sizeToastTimer.Start();
     }
@@ -677,7 +711,7 @@ public partial class Form1 : Form, IMessageFilter
         var screenPoint = new Point(
             workingArea.Left + ((workingArea.Width - sizeToast.Width) / 2),
             workingArea.Bottom - sizeToast.Height - margin);
-        sizeToast.Location = PointToClient(screenPoint);
+        sizeToast.Location = screenPoint;
     }
 
     private void AddShortcut(string path)
