@@ -10,6 +10,7 @@ UltraBar é uma barra de ferramentas para Windows feita em C#/WinForms. Ela fica
 - Use `Exibição` no menu de cada atalho para mostrar aquele botão como ícone, texto ou ícone + texto.
 - Arraste arquivos executáveis ou atalhos para dentro da barra para adicioná-los.
 - Arraste atalhos ou separadores dentro da barra para reordenar.
+- Use `Ctrl` + roda do mouse sobre a barra para alterar o tamanho padrão dos botões.
 - Clique com o botão direito em um atalho para remover.
 - A configuração fica em `%APPDATA%\UltraBar\settings.json`.
 

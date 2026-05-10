@@ -1,12 +1,14 @@
 namespace UltraBar;
 
-public partial class Form1 : Form
+public partial class Form1 : Form, IMessageFilter
 {
     private readonly AppSettings settings;
     private readonly NativeAppBar appBar;
     private readonly ToolbarPanel shortcutPanel = new();
     private readonly Panel resizeGrip = new();
     private readonly ToolTip toolTip = new();
+    private readonly Label sizeToast = new();
+    private readonly System.Windows.Forms.Timer sizeToastTimer = new();
     private bool resizing;
     private ShortcutItem? draggedItem;
     private Point dragStartPoint;
@@ -17,6 +19,10 @@ public partial class Form1 : Form
     private const int MinThickness = 48;
     private const int MaxThickness = 420;
     private const int PanelPadding = 8;
+    private const int ButtonSizeStep = 4;
+    private const int MinButtonSize = 32;
+    private const int MaxButtonSize = 128;
+    private const int WM_MOUSEWHEEL = 0x020A;
 
     public Form1()
     {
@@ -28,7 +34,9 @@ public partial class Form1 : Form
         ConfigureWindow();
         ConfigureShortcutPanel();
         ConfigureResizeGrip();
+        ConfigureSizeToast();
         ConfigureContextMenu();
+        Application.AddMessageFilter(this);
         RenderShortcuts();
     }
 
@@ -40,8 +48,21 @@ public partial class Form1 : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        Application.RemoveMessageFilter(this);
         appBar.Unregister();
         base.OnFormClosing(e);
+    }
+
+    public bool PreFilterMessage(ref Message m)
+    {
+        if (m.Msg != WM_MOUSEWHEEL || ModifierKeys != Keys.Control || !Bounds.Contains(Cursor.Position))
+        {
+            return false;
+        }
+
+        var delta = (short)((m.WParam.ToInt64() >> 16) & 0xffff);
+        AdjustButtonSize(delta > 0 ? ButtonSizeStep : -ButtonSizeStep);
+        return true;
     }
 
     private void ConfigureWindow()
@@ -82,6 +103,27 @@ public partial class Form1 : Form
         resizeGrip.MouseUp += OnResizeGripMouseUp;
         Controls.Add(resizeGrip);
         resizeGrip.BringToFront();
+    }
+
+    private void ConfigureSizeToast()
+    {
+        sizeToast.AutoSize = false;
+        sizeToast.BackColor = Color.FromArgb(230, 22, 24, 29);
+        sizeToast.ForeColor = Color.White;
+        sizeToast.Font = new Font(Font, FontStyle.Bold);
+        sizeToast.TextAlign = ContentAlignment.MiddleCenter;
+        sizeToast.Visible = false;
+        sizeToast.Width = 132;
+        sizeToast.Height = 34;
+        Controls.Add(sizeToast);
+        sizeToast.BringToFront();
+
+        sizeToastTimer.Interval = 900;
+        sizeToastTimer.Tick += (_, _) =>
+        {
+            sizeToastTimer.Stop();
+            sizeToast.Visible = false;
+        };
     }
 
     private void ConfigureContextMenu()
@@ -602,6 +644,44 @@ public partial class Form1 : Form
         SaveAndRender();
     }
 
+    private void AdjustButtonSize(int delta)
+    {
+        var nextSize = Math.Clamp(settings.ButtonSize + delta, MinButtonSize, MaxButtonSize);
+        if (nextSize == settings.ButtonSize)
+        {
+            ShowButtonSizeToast();
+            return;
+        }
+
+        settings.ButtonSize = nextSize;
+        settings.Sanitize();
+        SettingsStore.Save(settings);
+        RenderShortcuts();
+        ShowButtonSizeToast();
+    }
+
+    private void ShowButtonSizeToast()
+    {
+        sizeToast.Text = $"Botões: {settings.ButtonSize}px";
+        PositionSizeToast();
+        sizeToast.Visible = true;
+        sizeToast.BringToFront();
+        sizeToastTimer.Stop();
+        sizeToastTimer.Start();
+    }
+
+    private void PositionSizeToast()
+    {
+        const int margin = 12;
+        sizeToast.Location = settings.DockEdge switch
+        {
+            DockEdge.Left => new Point(Math.Max(margin, Width - sizeToast.Width - margin), margin),
+            DockEdge.Right => new Point(margin, margin),
+            DockEdge.Bottom => new Point(margin, Math.Max(margin, Height - sizeToast.Height - margin)),
+            _ => new Point(margin, margin)
+        };
+    }
+
     private void AddShortcut(string path)
     {
         if (settings.Shortcuts.Any(item => string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase)))
@@ -672,6 +752,7 @@ public partial class Form1 : Form
         settings.Sanitize();
         appBar.SetPosition(settings.DockEdge, settings.Thickness);
         PositionResizeGrip();
+        PositionSizeToast();
     }
 
     private void ApplyAppearance()
